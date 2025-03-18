@@ -1,7 +1,10 @@
 from dx_engine import InferenceEngine
 import sys
+import cv2
+
 # Get model path from an argument
 model_path = sys.argv[1]
+video_path = sys.argv[2]
 
 def letter_box(image_src, new_shape=(512, 512), fill_color=(114, 114, 114), format=None):
     
@@ -30,4 +33,15 @@ def letter_box(image_src, new_shape=(512, 512), fill_color=(114, 114, 114), form
 
 if __name__ == "__main__":
     engine = InferenceEngine(model_path)
+    cap = cv2.VideoCapture(video_path)
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if ret:
+            frame, ratio, pad = letter_box(frame, new_shape=(512, 512), fill_color=(114, 114, 114), format=None)
+            #result = engine.predict(frame)
+            cv2.imshow("result", result)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+        else:
+            break 
     print(engine)
