@@ -69,7 +69,7 @@ if __name__ == "__main__":
 
     wait_thread = threading.Thread(target=wait_for_requests, args=(ie,))
     wait_thread.start()
-    result_queue.join
+    result_queue.join()
     wait_thread.join()
     
     print(ie)
