@@ -43,28 +43,12 @@ def wait_for_requests(ie):
             outputs = ie.Wait(req_id)
             print(f"Request {req_id} completed")
             print(f"Output shape: {len(outputs)}")
-            #print(f"Output shape: {outputs[0]}")
-            print(f"Output shape: {outputs[0].shape}")
-            print(f"Output shape: {outputs[1].shape}")
+            print(f"Output shape 0: {outputs[0].shape}")
+            print(f"Output shape 1: {outputs[1].shape}")
             print(f"Output shape 2: {outputs[2].shape}")
-            cv2.imshow("result", outputs[2])
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
         except queue.Empty:
             print("Queue is empty")
             break
-
-        #status = ie.Wait(req_id)
-        #print(f"Request {req_id}dfcompleted with status {status}")
-        #if status == 0:
-        #    result = ie.GetResult(req_id)
-        #    print(f"Result shape: {result.shape}")
-        #    cv2.imshow("result", result)
-        #    if cv2.waitKey(1) & 0xFF == ord('q'):
-        #        break
-        #else:
-        #    print(f"Request {req_id} failed with status {status}")
-        #    #break
 
 if __name__ == "__main__":
     engine = InferenceEngine(model_path)
@@ -72,15 +56,9 @@ if __name__ == "__main__":
     while cap.isOpened():
         ret, frame = cap.read()
         if ret:
-            #frame, ratio, pad = letter_box(frame, new_shape=(512, 512), fill_color=(114, 114, 114), format=None)
             req_id = engine.RunAsync(frame, frame)
             print(f"Inference request ID: {req_id} submitted")
             result_queue.put(req_id)
-            #cv2.imshow("result", result)
-            #cv2.imshow("frame", frame)
-            #print(frame.shape)
-            #if cv2.waitKey(1) & 0xFF == ord('q'):
-            #    break
         else:
             break 
 
