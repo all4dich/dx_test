@@ -41,30 +41,35 @@ def wait_for_requests(ie):
             req_id = result_queue.get(timeout=5)
             print(f"Waiting for request {req_id}")
             outputs = ie.Wait(req_id)
+            print(f"Outputs: {len(outputs)}")
+            print(f"Outputs: {outputs[0].shape}")
+            outputs_checker = []
+            for output in outputs:
+                outputs_checker.append(output[...,:255])
             print(f"Request {req_id} completed")
-            print(f"Output shape: {len(outputs)}")
-            print(f"Output shape 0: {outputs[0].shape}")
-            print(f"Output shape 1: {outputs[1].shape}")
-            print(f"Output shape 2: {outputs[2].shape}")
+            #print(f"Output shape: {len(outputs)}")
+            #print(f"Output shape 0: {outputs[0].shape}")
+            #print(f"Output shape 1: {outputs[1].shape}")
+            #print(f"Output shape 2: {outputs[2].shape}")
         except queue.Empty:
             print("Queue is empty")
             break
 
 if __name__ == "__main__":
-    engine = InferenceEngine(model_path)
+    ie = InferenceEngine(model_path)
     cap = cv2.VideoCapture(video_path)
     while cap.isOpened():
         ret, frame = cap.read()
         if ret:
-            req_id = engine.RunAsync(frame, frame)
+            req_id = ie.RunAsync(frame,None)
             print(f"Inference request ID: {req_id} submitted")
             result_queue.put(req_id)
         else:
             break 
 
-    wait_thread = threading.Thread(target=wait_for_requests, args=(engine,))
+    wait_thread = threading.Thread(target=wait_for_requests, args=(ie,))
     wait_thread.start()
     result_queue.join
     wait_thread.join()
     
-    print(engine)
+    print(ie)

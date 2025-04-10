@@ -15,11 +15,7 @@ if [ -z "$2" ]; then
   echo "INFO: mp4 file path not provided, using default path."
   MP4_FILE_PATH="${HOME}/Airshow.mp4"
 else
-  # Check if the file exists
-  if [ ! -f "$2" ]; then
-    echo "Error: File $2 does not exist."
-    exit 1
-  fi
+  MP4_FILE_PATH=$(realpath "$2")
 fi
 if [ -z "$VIRTUAL_ENV" ]; then
   echo "Error: Python virtual environment is not activated."
@@ -30,4 +26,6 @@ if [ -z "$VIRTUAL_ENV" ]; then
       source ${HOME}/program/venv/bin/activate
   fi
 fi
+set -x
 python3 ./main.py ${DXNN_FILE_PATH} ${MP4_FILE_PATH}
+set +x
