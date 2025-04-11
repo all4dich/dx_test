@@ -6,71 +6,49 @@ import threading
 import queue
 from threading import Thread
 
+import cv2
+
+model_path = sys.argv[1]
+video_path = sys.argv[2]
+
+
 q = queue.Queue()
 gLoopCount = 0
 
 lock = threading.Lock()
 
 def onInferenceCallbackFunc(outputs, user_arg):
-    # the outputs are guaranteed to be valid only within this callback function
-    # processing this callback functions as quickly as possible is beneficial 
-    # for improving inference performance
-
-    global gLoopCount
-
-    # Mutex locks should be properly adjusted 
-    # to ensure that callback functions are thread-safe.
-    with lock:
-
-        # user data type casting
-        index, loop_count = user_arg.value
-    
-
-        # post processing
-        #postProcessing(outputs);
-
-        # something to do
-
-        print("Inference output (callback) index=", index)
-
-        gLoopCount += 1
-        if ( gLoopCount == loop_count ) :
-            print("Complete Callback")
-            q.put(0)
-
-    return 0
+    #with lock:
+    #    print(f"onInferenceCallbackFunc: {len(outputs)} ")
+    #    gLoopCount += 1
+    #    loop_count = user_arg.value
+    #    print(f"onInferenceCallbackFunc: {gLoopCount} {loop_count}")
+    #    if ( gLoopCount == loop_count ) :
+    #        print("Complete Callback")
+    #p        q.put(0)
+    print(f"onInferenceCallbackFunc: {len(outputs)} ")
+    return
 
 
 if __name__ == "__main__":
     DEFAULT_LOOP_COUNT = 1
     loop_count = DEFAULT_LOOP_COUNT
-    modelPath = ""
-    argc = len(sys.argv)
-    if ( argc > 1 ) :
-        modelPath = sys.argv[1];
-        if ( argc > 2 ) :
-            loop_count = int(sys.argv[2])
-    else:
-        print("[Usage] run_async_model [dxnn-file-path] [loop-count]")
-        exit(-1)
-    
 
     # create inference engine instance with model
-    ie = InferenceEngine(modelPath)
-
+    ie = InferenceEngine(model_path)
+    cap = cv2.VideoCapture(video_path)
     # register call back function
     ie.RegisterCallBack(onInferenceCallbackFunc)
-
-
-    input = [np.zeros(ie.input_size(), dtype=np.uint8)]
-
-    # inference loop
-    for i in range(loop_count):
-
-        # inference asynchronously, use all npu cores
-        # if device-load >= max-load-value, this function will block  
-        ie.RunAsync(input, user_arg=[i, loop_count])
-
-        print("Inference start (async)", i)
-
-    exit(q.get())c
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if ret:
+            # run inference
+            req_id = ie.RunAsync(frame, [loop_count])
+            print(f"Inference request ID: {req_id} submitted")
+            # increment loop count
+            loop_count += 1
+        else:
+            print("End of video stream: Breaking")
+            break
+    print("out of while loop")
+    exit(0)

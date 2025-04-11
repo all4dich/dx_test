@@ -27,6 +27,6 @@ if [ -z "$VIRTUAL_ENV" ]; then
   fi
 fi
 set -x
-python3 ./main.py ${DXNN_FILE_PATH} ${MP4_FILE_PATH}
-#python3 ./run_async_model.py  ${DXNN_FILE_PATH} ${MP4_FILE_PATH}
+#python3 ./main.py ${DXNN_FILE_PATH} ${MP4_FILE_PATH}
+python3 -m pdb ./run_async_model.py  ${DXNN_FILE_PATH} ${MP4_FILE_PATH}
 set +x
