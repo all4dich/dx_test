@@ -119,34 +119,100 @@ def all_decode(ie_outputs, layer_config):
 
 
 def post_process(decoded_tensor, image_input, i, config):
-    model_path = config["model"]["path"]
-    classes = config["output"]["classes"]
-    score_threshold = config["model"]["param"]["score_threshold"]
-    iou_threshold = config["model"]["param"]["iou_threshold"]
-    layers = config["model"]["param"]["layer"]
+    # 1. Extract Configuration Parameters:
+    #    - Retrieves necessary settings from the 'config' dictionary.
+    #    - model_path and layers seem unused within this specific function.
+    model_path = config["model"]["path"] # Unused here
+    classes = config["output"]["classes"] # List of class names (e.g., ['person', 'car', ...])
+    score_threshold = config["model"]["param"]["score_threshold"] # Minimum confidence score to consider a detection
+    iou_threshold = config["model"]["param"]["iou_threshold"] # Overlap threshold for NMS
+    layers = config["model"]["param"]["layer"] # Unused here
 
     ''' post Processing '''
+    # 2. Convert to PyTorch Tensor:
+    #    - Converts the NumPy array 'decoded_tensor' (output from all_decode)
+    #      into a PyTorch tensor for efficient processing with PyTorch/Torchvision functions.
+    #    - decoded_tensor shape is likely (N, 85), where N is the total number of potential
+    #      detections across all grid cells and anchors, and 85 = cx, cy, w, h, obj_conf, 80 class_scores.
     x = torch.Tensor(decoded_tensor)
+
+    # 3. Initial Confidence Filtering:
+    #    - Filters the tensor 'x', keeping only rows (detections) where the object confidence
+    #      score (at index 4) is greater than the specified 'score_threshold'.
+    #    - This removes low-confidence predictions early on.
     x = x[x[..., 4] > score_threshold]
+
+    # 4. Convert Box Format (xywh -> xyxy):
+    #    - Takes the bounding box coordinates [cx, cy, w, h] (center x, center y, width, height)
+    #      from the first 4 columns of 'x'.
+    #    - Converts them to [x1, y1, x2, y2] format (top-left x, top-left y, bottom-right x, bottom-right y).
+    #    - This uses a utility function `ops.xywh2xyxy` likely from the 'ultralytics' library.
     box = ops.xywh2xyxy(x[:, :4])
+
+    # 5. Calculate Class Confidences:
+    #    - Multiplies the class scores (columns 5 onwards) by the object confidence score (column 4).
+    #    - This gives the final confidence for each class: P(Class_i|Object) * P(Object).
     x[:, 5:] *= x[:, 4:5]
+
+    # 6. Find Best Class and Score per Box:
+    #    - For each detection, finds the maximum confidence score among all class scores (columns 5 onwards).
+    #    - 'conf' will store the maximum confidence score.
+    #    - 'j' will store the index (the class ID) of that maximum score.
     conf, j = x[:, 5:].max(1, keepdims=True)
+
+    # 7. Combine and Filter Again:
+    #    - Concatenates the converted boxes ('box'), the maximum confidence ('conf'),
+    #      and the class ID ('j') into a new tensor. Shape: (N_filtered, 6) -> [x1, y1, x2, y2, final_conf, class_id].
+    #    - Filters this tensor *again* based on the final class confidence ('conf'), ensuring it's above the 'score_threshold'.
+    #      (This might seem redundant with step 3, but it ensures the *final* class confidence meets the threshold).
     x = torch.cat((box, conf, j.float()), 1)[conf.view(-1) > score_threshold]
+
+    # 8. Sort by Confidence:
+    #    - Sorts the remaining detections in descending order based on their confidence score (column 4).
+    #    - NMS algorithms often work best with sorted inputs.
     x = x[x[:, 4].argsort(descending=True)]
+
+    # 9. Apply Non-Maximum Suppression (NMS):
+    #    - Uses `torchvision.ops.nms` to remove overlapping bounding boxes for the same object.
+    #    - It takes the boxes ([x1, y1, x2, y2]), the confidence scores, and the 'iou_threshold'.
+    #    - If two boxes have an Intersection over Union (IoU) greater than 'iou_threshold',
+    #      the one with the lower confidence score is suppressed (removed).
+    #    - 'x' now contains only the indices of the boxes kept after NMS.
     x = x[torchvision.ops.nms(x[:,:4], x[:, 4], iou_threshold)]
+
+    # 10. Final Check (Optional but safe):
+    #     - Ensures that all remaining boxes still have a positive confidence score.
     x = x[x[:,4] > 0]
+
+    # 11. Print Detection Count:
     print("[Result] Detected {} Boxes.".format(len(x)))
+
     ''' save result and print detected info '''
+    # 12. Prepare Image for Drawing:
+    #     - Converts the input image (assumed RGB) to BGR format, which OpenCV uses for drawing and saving.
     image = cv2.cvtColor(image_input, cv2.COLOR_RGB2BGR)
+
+    # 13. Generate Colors:
+    #     - Creates a list of random colors, one for each potential class (hardcoded to 80 here).
+    #     - It's generally better to generate this once outside the loop or use a fixed color map.
     colors = np.random.randint(0, 256, [80, 3], np.uint8).tolist()
+
+    # 14. Draw Bounding Boxes and Print Info:
+    #     - Iterates through the final detections in the tensor 'x' (converted back to NumPy).
     for idx, r in enumerate(x.numpy()):
-        
+        # Extract box coordinates, confidence, and class label.
         pt1, pt2, conf, label = r[0:2].astype(int), r[2:4].astype(int), r[4], r[5].astype(int)
+        # Print detailed information about the detection.
         print("[{}] conf, classID, x1, y1, x2, y2, : {:.4f}, {}({}), {}, {}, {}, {}"
               .format(idx, conf, classes[label], label, pt1[0], pt1[1], pt2[0], pt2[1]))
+        # Draw the rectangle on the image using the class-specific color.
         image = cv2.rectangle(image, pt1, pt2, colors[label], 2)
+
+    # 15. Save Output Image:
+    #     - Saves the image with the drawn bounding boxes to a file named using the counter 'i'.
     cv2.imwrite(f"{i}.jpg", image)
-    print(f"save file : {i}.jpg ")    
+    print(f"save file : {i}.jpg ")
+
 
 if __name__ == "__main__":
 
