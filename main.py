@@ -3,12 +3,16 @@ import sys
 import cv2
 import queue
 import threading
+import numpy as np
 
 result_queue = queue.Queue()
 
 # Get model path from an argument
 model_path = sys.argv[1]
 video_path = sys.argv[2]
+
+def sigmoid(x):
+    return 1 / (1 + np.exp(-x))
 
 def letter_box(image_src, new_shape=(512, 512), fill_color=(114, 114, 114), format=None):
     
@@ -35,17 +39,40 @@ def letter_box(image_src, new_shape=(512, 512), fill_color=(114, 114, 114), form
     
     return image_new, ratio, (dw, dh)    
 
+layer = {
+                   "anchor_width": [
+                        10,
+                        16,
+                        33
+                    ],
+                    "anchor_height": [
+                        13,
+                        30,
+                        23
+                    ] 
+}
 def wait_for_requests(ie):
     while not result_queue.empty():
         try:
             req_id = result_queue.get(timeout=5)
             print(f"Waiting for request {req_id}")
             outputs = ie.Wait(req_id)
-            print(f"Outputs: {len(outputs)}")
-            print(f"Outputs: {outputs[0].shape}")
-            outputs_checker = []
-            for output in outputs:
-                outputs_checker.append(output[...,:255])
+            for i, output in enumerate(outputs):
+                output[...,4] = sigmoid(output[...,4])
+                for l in range(3):
+                    stride = 8
+                    cxcy = output[...,(l*85)+0:(l*85)+2]
+                    wh = output[...,(l*85)+2:(l*85)+4]
+                    cxcy[...,0] = (sigmoid(cxcy[...,0]) * 2 - 0.5 + grid[0]) * stride # grid[0] likely refers to the x-coordinates from the meshgrid
+                    cxcy[...,1] = (sigmoid(cxcy[...,1]) * 2 - 0.5 + grid[1]) * stride # grid[1] likely refers to the y-coordinates from the meshgrid
+                    wh[...,0] = ((sigmoid(wh[...,0]) * 2) ** 2) * layer["anchor_width"][l]
+                    wh[...,1] = ((sigmoid(wh[...,1]) * 2) ** 2) * layer["anchor_height"][l]
+                    print(f"cxcy {cxcy.shape}")
+                    print(f"wh {wh.shape}")
+                    import sys
+                    sys.exit(1)
+
+                
             print(f"Request {req_id} completed")
             #print(f"Output shape: {len(outputs)}")
             #print(f"Output shape 0: {outputs[0].shape}")

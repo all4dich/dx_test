@@ -5,6 +5,7 @@ from dx_engine import InferenceEngine
 import threading
 import queue
 from threading import Thread
+import os
 
 import cv2
 import argparse
@@ -27,6 +28,29 @@ config_path = args.config
 def sigmoid(x):
     return 1 / (1 + np.exp(-x))
 
+def letter_box(image_src, new_shape=(512, 512), fill_color=(114, 114, 114), format=None):
+    src_shape = image_src.shape[:2] # height, width
+    if isinstance(new_shape, int):
+        new_shape = (new_shape, new_shape)
+
+    r = min(new_shape[0] / src_shape[0], new_shape[1] / src_shape[1])
+
+    ratio = r, r
+    new_unpad = int(round(src_shape[1] * r)), int(round(src_shape[0] * r))
+    dw, dh = new_shape[1] - new_unpad[0], new_shape[0] - new_unpad[1]
+
+    dw /= 2
+    dh /= 2
+
+    if src_shape[::-1] != new_unpad:
+        image_src = cv2.resize(image_src, new_unpad, interpolation=cv2.INTER_LINEAR)
+    top, bottom = int(round(dh - 0.1)), int(round(dh + 0.1))
+    left, right = int(round(dw - 0.1)), int(round(dw + 0.1))
+    image_new = cv2.copyMakeBorder(image_src, top, bottom, left, right, cv2.BORDER_CONSTANT, value=fill_color)  # add border
+    if format is not None:
+        image_new = cv2.cvtColor(image_new, format)
+
+    return image_new, ratio, (dw, dh)
 
 def all_decode(ie_outputs, layer_config):
     ''' slice outputs'''
@@ -220,20 +244,65 @@ if __name__ == "__main__":
     json_config = json.load(f)
     # create inference engine instance with model
     ie = InferenceEngine(model_path)
+    input_size = np.sqrt(ie.input_size() / 3)
     cap = cv2.VideoCapture(video_path)
     # register call back function
     loop_count = 1
+    model_path = json_config["model"]["path"]
+    classes = json_config["output"]["classes"]
+    score_threshold = json_config["model"]["param"]["score_threshold"]
+    iou_threshold = json_config["model"]["param"]["iou_threshold"]
+    layers = json_config["model"]["param"]["layer"]   
     while cap.isOpened():
         ret, frame = cap.read()
         if ret:
             # run inference
-            output = ie.Run(frame)
+            image_input, _, _ = letter_box(frame, new_shape=(int(input_size), int(input_size)), fill_color=(114, 114, 114), format=cv2.COLOR_BGR2RGB)
+            ie_output = ie.Run(image_input)
             layers = json_config["model"]["param"]["layer"]
-            decoded_a = all_decode(output, layers)
-            post_process(decoded_a, frame, loop_count, json_config) 
-            # increment loop count
+            decoded_tensor = []
+            if ie.output_dtype()[0] == "BBOX":
+                decoded_tensor = ppu_decode(ie_output, layers)
+            elif len(ie_output) > 1:
+                cpu_model_path = os.path.join(os.path.split(model_path)[0], "cpu_0.onnx")
+                if os.path.exists(cpu_model_path):
+                    decoded_tensor = onnx_decode(ie_output, cpu_model_path)
+                else:
+                    decoded_tensor = all_decode(ie_output, layers)
+            else:
+                decoded_tensor = ie_output[0]
+            print("decoding output Done! ")
+
+            ''' post Processing '''
+            x = torch.Tensor(decoded_tensor)
+            x = x[x[..., 4] > score_threshold]
+            box = ops.xywh2xyxy(x[:, :4])
+            x[:, 5:] *= x[:, 4:5]
+            conf, j = x[:, 5:].max(1, keepdims=True)
+            x = torch.cat((box, conf, j.float()), 1)[conf.view(-1) > score_threshold]
+            x = x[x[:, 4].argsort(descending=True)]
+            x = x[torchvision.ops.nms(x[:,:4], x[:, 4], iou_threshold)]
+            x = x[x[:,4] > 0]
+            print("[Result] Detected {} Boxes.".format(len(x)))
+            ''' save result and print detected info '''
+            image = cv2.cvtColor(image_input, cv2.COLOR_RGB2BGR)
+            colors = np.random.randint(0, 256, [80, 3], np.uint8).tolist()
+            for idx, r in enumerate(x.numpy()):
+
+                pt1, pt2, conf, label = r[0:2].astype(int), r[2:4].astype(int), r[4], r[5].astype(int)
+                print("[{}] conf, classID, x1, y1, x2, y2, : {:.4f}, {}({}), {}, {}, {}, {}"
+                      .format(idx, conf, classes[label], label, pt1[0], pt1[1], pt2[0], pt2[1]))
+                image = cv2.rectangle(image, pt1, pt2, colors[label], 2)
+                print(f"pt1: {pt1}, pt2: {pt2}, conf: {conf}, label: {label}")
+            cv2.imwrite(f"{loop_count}.jpg", image)    
+            print(f"save file : {loop_count}.jpg ")
             loop_count += 1
-            print(f"Loop count: {loop_count}")
+###            decoded_output = all_decode(output, layers)
+###            post_process(decoded_output, frame, loop_count, json_config) 
+###            # increment loop count
+###            loop_count += 1
+###            print(f"Loop count: {loop_count}")
+            
         else:
             print("End of video stream: Breaking")
             break
